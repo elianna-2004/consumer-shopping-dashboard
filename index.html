@@ -29,23 +29,31 @@ const [category,setCategory]=useState('All'),[region,setRegion]=useState('All'),
 const categories=useMemo(()=>[...new Set(data.map(r=>r.Category))].sort(),[data]);
 const regions=useMemo(()=>[...new Set(data.map(r=>r.Region))].sort(),[data]);
 const months=useMemo(()=>[...new Set(data.map(r=>String(r.Order_Date).slice(0,7)))].sort(),[data]);
-const dateValues=useMemo(()=>data.map(r=>String(r.Order_Date||'').slice(0,10)).filter(v=>/^\\d{4}-\\d{2}-\\d{2}$/.test(v)).sort(),[data]);
-const earliestDate=dateValues[0]||'',latestDate=dateValues[dateValues.length-1]||'';
+const dateBounds=useMemo(()=>{let min='',max='';for(const r of data){const d=String(r.Order_Date||'').slice(0,10);if(!/^\d{4}-\d{2}-\d{2}$/.test(d))continue;if(!min||d<min)min=d;if(!max||d>max)max=d;}return{min,max}},[data]);
+const earliestDate=dateBounds.min,latestDate=dateBounds.max;
 const invalidDateRange=Boolean(startDate&&endDate&&startDate>endDate);
-const filtered=useMemo(()=>data.filter(r=>{const d=String(r.Order_Date||'').slice(0,10);return !invalidDateRange&&(category==='All'||r.Category===category)&&(region==='All'||r.Region===region)&&(month==='All'||d.startsWith(month))&&(!startDate||d>=startDate)&&(!endDate||d<=endDate)&&(!search||Object.values(r).some(v=>String(v).toLowerCase().includes(search.toLowerCase())))}),[data,category,region,month,startDate,endDate,search,invalidDateRange]);
+const searchableRows=useMemo(()=>data.map(r=>({row:r,text:Object.values(r).join(' ').toLowerCase(),date:String(r.Order_Date||'').slice(0,10)})),[data]);
+const filtered=useMemo(()=>{if(invalidDateRange)return[];const q=search.trim().toLowerCase();return searchableRows.filter(({row:r,text,date:d})=>(category==='All'||r.Category===category)&&(region==='All'||r.Region===region)&&(month==='All'||d.startsWith(month))&&(!startDate||d>=startDate)&&(!endDate||d<=endDate)&&(!q||text.includes(q))).map(x=>x.row)},[searchableRows,category,region,month,startDate,endDate,search,invalidDateRange]);
 const tableMatches=useMemo(()=>{const q=tableSearch.trim().toLowerCase();return q?filtered.filter(r=>Object.values(r).some(v=>String(v).toLowerCase().includes(q))):filtered},[filtered,tableSearch]);
 const highlight=v=>{const t=String(v??''),q=tableSearch.trim();if(!q)return t;const p=t.toLowerCase().indexOf(q.toLowerCase());return p<0?t:h(React.Fragment,null,t.slice(0,p),h('mark',{style:{background:'#fde68a',borderRadius:3,padding:'1px 2px'}},t.slice(p,p+q.length)),t.slice(p+q.length))};
-const sum=k=>filtered.reduce((n,r)=>n+(Number(r[k])||0),0),quantity=sum('Quantity'),revenue=sum('Revenue'),orders=filtered.length,customers=new Set(filtered.map(r=>r.Customer_ID)).size;
-const product=group(filtered,r=>r.Product,r=>Number(r[metric])||0).slice(0,8);
-const categoryData=group(filtered,r=>r.Category,r=>Number(r.Quantity)||0);
-const timeline=group(filtered,r=>String(r.Order_Date).slice(0,7),r=>Number(r.Quantity)||0).sort((a,b)=>a.name.localeCompare(b.name));
-const regionData=group(filtered,r=>r.Region,r=>Number(r.Quantity)||0);
-const allUnits=data.reduce((n,r)=>n+(Number(r.Quantity)||0),0);
-const filteredPct=data.length?100*filtered.length/data.length:0;
+const aggregates=useMemo(()=>{
+let quantity=0,revenue=0;const customersSet=new Set(),products=new Map(),productUnits=new Map(),categoriesMap=new Map(),monthsMap=new Map(),regionsMap=new Map();
+for(const r of filtered){const units=Number(r.Quantity)||0,rev=Number(r.Revenue)||0,prod=r.Product,cat=r.Category,reg=r.Region,mo=String(r.Order_Date).slice(0,7);
+quantity+=units;revenue+=rev;customersSet.add(r.Customer_ID);
+products.set(prod,(products.get(prod)||0)+(metric==='Revenue'?rev:units));
+productUnits.set(prod,(productUnits.get(prod)||0)+units);
+categoriesMap.set(cat,(categoriesMap.get(cat)||0)+units);
+monthsMap.set(mo,(monthsMap.get(mo)||0)+units);
+regionsMap.set(reg,(regionsMap.get(reg)||0)+units);
+}
+const sorted=m=>Array.from(m,([name,value])=>({name,value})).sort((a,b)=>b.value-a.value);
+const timeline=sorted(monthsMap).sort((a,b)=>a.name.localeCompare(b.name));
+return{quantity,revenue,orders:filtered.length,customers:customersSet.size,product:sorted(products).slice(0,8),categoryData:sorted(categoriesMap),timeline,regionData:sorted(regionsMap),topProductUnits:sorted(productUnits)[0]||null,peakMonth:sorted(monthsMap)[0]||null};
+},[filtered,metric]);
+const {quantity,revenue,orders,customers,product,categoryData,timeline,regionData,topProductUnits,peakMonth}=aggregates;
+const filteredPct=data.length?100*orders/data.length:0;
 const categoryLeader=categoryData[0];
-const peakMonth=timeline.length?[...timeline].sort((a,b)=>b.value-a.value)[0]:null;
 const avgOrder=orders?revenue/orders:0;
-const topProductUnits=group(filtered,r=>r.Product,r=>Number(r.Quantity)||0)[0];
 const insightContext=[category!=='All'?'Category: '+category:null,region!=='All'?'Region: '+region:null,month!=='All'?'Month: '+month:null,startDate?'From: '+startDate:null,endDate?'Through: '+endDate:null,search.trim()?'Global search: '+search.trim():null].filter(Boolean);
 
 const requiredColumns=['Order_Date','Category','Product','Region','Quantity','Revenue','Customer_ID'];
