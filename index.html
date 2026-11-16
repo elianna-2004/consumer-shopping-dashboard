@@ -37,6 +37,14 @@ const product=group(filtered,r=>r.Product,r=>Number(r[metric])||0).slice(0,8);
 const categoryData=group(filtered,r=>r.Category,r=>Number(r.Quantity)||0);
 const timeline=group(filtered,r=>String(r.Order_Date).slice(0,7),r=>Number(r.Quantity)||0).sort((a,b)=>a.name.localeCompare(b.name));
 const regionData=group(filtered,r=>r.Region,r=>Number(r.Quantity)||0);
+const allUnits=data.reduce((n,r)=>n+(Number(r.Quantity)||0),0);
+const filteredPct=data.length?100*filtered.length/data.length:0;
+const categoryLeader=categoryData[0];
+const peakMonth=timeline.length?[...timeline].sort((a,b)=>b.value-a.value)[0]:null;
+const avgOrder=orders?revenue/orders:0;
+const topProductUnits=group(filtered,r=>r.Product,r=>Number(r.Quantity)||0)[0];
+const insightContext=[category!=='All'?'Category: '+category:null,region!=='All'?'Region: '+region:null,month!=='All'?'Month: '+month:null,search.trim()?'Global search: '+search.trim():null].filter(Boolean);
+
 async function load(e){const file=e.target.files?.[0];if(!file)return;try{const parsed=parseCSV(await file.text());const required=['Order_Date','Category','Product','Region','Quantity','Revenue','Customer_ID'];const missing=required.filter(x=>!parsed.headers.includes(x));if(missing.length)throw Error('Missing required columns: '+missing.join(', '));if(!parsed.rows.length)throw Error('CSV contains no records');setData(parsed.rows);setHeaders(parsed.headers);setMessage('Loaded '+fmt(parsed.rows.length)+' rows and '+parsed.headers.length+' columns — '+file.name);setError('');setCategory('All');setRegion('All');setMonth('All');setSearch('');setTableSearch('')}catch(ex){setError(ex.message);setData([]);setMessage('')}e.target.value=''}
 const select=(title,value,change,values)=>h('label',null,title,h('select',{value,onChange:e=>change(e.target.value)},...['All',...values].map(v=>h('option',{key:v,value:v},v==='All'?'All '+title.toLowerCase():v))));
 const chart=(title,content)=>h('section',{className:'panel',key:title},h('h3',null,title),h('div',{style:{height:270,width:'100%'}},content));
@@ -57,7 +65,16 @@ h('section',{className:'panel filters'},select('Category',category,setCategory,c
 h('section',{className:'cards'},...[['Units Sold',fmt(quantity)],['Purchases',fmt(orders)],['Average Order',money(orders?revenue/orders:0)],['Unique Customers',fmt(customers)]].map(([k,v])=>h('div',{className:'card',key:k},h('span',null,k),h('strong',null,v)))),
 h('div',{className:'top',style:{marginTop:18}},h('h2',null,'Shopping trends'),h('button',{onClick:()=>setMetric(metric==='Revenue'?'Quantity':'Revenue')},'Top products: '+(metric==='Revenue'?'Revenue':'Units sold')+' (switch)')),
 h('div',{className:'charts'},chart('Top products',productChart),chart('Monthly units sold',lineChart),chart('Category popularity',pieChart),chart('Regional shopping activity',regionChart)),
-h('section',{className:'panel'},h('h3',null,'Shopping insights'),h('div',{className:'insight'},product[0]?'Most popular product: '+product[0].name+' ('+fmt(product[0].value)+' '+(metric==='Revenue'?'in revenue':'units')+').':'No matching products.'),h('div',{className:'insight'},categoryData[0]?categoryData[0].name+' leads category purchases with '+fmt(categoryData[0].value)+' units.':'No matching categories.'),h('div',{className:'insight'},timeline.length?'Busiest month: '+[...timeline].sort((a,b)=>b.value-a.value)[0].name+'.':'No matching months.'),h('p',{className:'muted'},'Popularity does not indicate product quality.')),
+h('section',{className:'panel',id:'insights'},h('div',{className:'top'},h('h3',null,'Insights from your selection'),h('span',{className:'muted'},'Updates automatically with dashboard filters')),
+h('p',{className:'muted'},insightContext.length?'Active filters: '+insightContext.join(' · '):'Showing insights across the full uploaded dataset.'),
+orders===0?h('div',{className:'insight'},'No transactions match these filters. Adjust your selection to see insights.'):
+h(React.Fragment,null,
+h('div',{className:'insight'},'Selected activity: '+fmt(orders)+' purchases ('+filteredPct.toFixed(1)+'% of all records), totaling '+fmt(quantity)+' units and '+money(revenue)+' in revenue.'),
+h('div',{className:'insight'},topProductUnits?'Top-selling product: '+topProductUnits.name+' with '+fmt(topProductUnits.value)+' units ('+(quantity?100*topProductUnits.value/quantity:0).toFixed(1)+'% of selected units).':'No product data available.'),
+h('div',{className:'insight'},categoryLeader?'Leading category: '+categoryLeader.name+' with '+fmt(categoryLeader.value)+' units ('+(quantity?100*categoryLeader.value/quantity:0).toFixed(1)+'% of selected units).':'No category data available.'),
+h('div',{className:'insight'},peakMonth?'Busiest month: '+peakMonth.name+' with '+fmt(peakMonth.value)+' units sold.':'No monthly data available.'),
+h('div',{className:'insight'},'Average order value: '+money(avgOrder)+' across '+fmt(customers)+' unique customers.')),
+h('p',{className:'muted'},'Insights are descriptive summaries of the filtered transactions, not predictions or product-quality ratings. Table-only search does not affect these insights.')),
 h('section',{className:'panel'},
 h('div',{className:'top'},h('h3',null,'Transaction details'),h('span',{className:'muted'},fmt(tableMatches.length)+' of '+fmt(filtered.length)+' matching records')),
 h('label',{style:{display:'block',margin:'10px 0 15px',fontSize:13,color:'#61718a'}},'Search within transaction table',h('input',{type:'search',value:tableSearch,onChange:e=>setTableSearch(e.target.value),placeholder:'Find an order, product, customer, date…',style:{display:'block',width:'100%',marginTop:7},'aria-label':'Search transaction table'})),
